@@ -1,0 +1,14 @@
+{
+  "extends": "@lunjs/eslint-config/js",
+  "overrides": [
+    {
+      "files": ["test.js"],
+      "env": {
+        "mocha": true
+      },
+      "rules": {
+        "no-template-curly-in-string": "off"
+      }
+    }
+  ]
+}
