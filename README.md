@@ -19,7 +19,13 @@ const config = {
 expandVar(config);
 
 console.log(config);
-// => { host: 'example.com', port: '8080', url: 'https://example.com:8080' }
+/*
+{
+  host: 'example.com',
+  port: '8080',
+  url: 'https://example.com:8080'
+}
+*/
 ```
 
 ## License
