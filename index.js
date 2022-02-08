@@ -1,5 +1,4 @@
-import get from 'lodash.get';
-import set from 'lodash.set';
+import { ObjectPath } from '@lunjs/object-path';
 
 const VARIABLE_REPLACE_REGEXP = /\$\{([^}]*?)\}/g;
 const VARIABLE_TEST_REGEXP = /\$\{([^}]*?)\}/;
@@ -14,6 +13,7 @@ class Expander {
     this.objStack = [];
     this.skips = [];
     this.customGet = noop;
+    this.objectPath = ObjectPath.escapeDotStyle;
 
     options = options || {};
     if (options.skips) {
@@ -25,6 +25,9 @@ class Expander {
       this.customGet = options.get;
     }
     this.replaceUndefinedWithEmptyString = options.replaceUndefinedWithEmptyString === true;
+    if (options.objectPathStyle === 'quoteStyle') {
+      this.objectPath = ObjectPath.quoteStyle;
+    }
   }
 
   expand() {
@@ -38,7 +41,7 @@ class Expander {
     this.objStack.push(obj);
 
     for (const key of Object.keys(obj)) {
-      this.tryExpandItem(obj, key, parentPath ? `${parentPath}.${key}` : key);
+      this.tryExpandItem(obj, key, parentPath ? `${parentPath}.${this.objectPath.keyPath.escape(key)}` : key);
     }
 
     this.objStack.pop();
@@ -109,7 +112,7 @@ class Expander {
       throw new Error(`Circular dependency: ${this.pathRefStack.join(' -> ')} -> ${path}`);
     }
 
-    val = get(this.root, path);
+    val = this.objectPath.get(this.root, path);
     if (typeof val !== 'string') {
       return val;
     }
@@ -119,7 +122,7 @@ class Expander {
     }
 
     val = this.expandString(val, path);
-    set(this.root, path, val);
+    this.objectPath.set(this.root, path, val);
     return val;
   }
 
