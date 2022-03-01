@@ -1,8 +1,5 @@
 import { ObjectPath } from '@lunjs/object-path';
 
-const VARIABLE_REPLACE_REGEXP = /\$\{([^}]*?)\}/g;
-const VARIABLE_TEST_REGEXP = /\$\{([^}]*?)\}/;
-const VARIABLE_SINGLE_REGEXP = /^\$\{([^}]*?)\}$/;
 // eslint-disable-next-line no-empty-function
 const noop = () => {};
 
@@ -61,69 +58,141 @@ class Expander {
   }
 
   tryExpandItem(item, key, path) {
-    const val = item[key];
-    if (!val || this.skipPath(path)) {
+    const value = item[key];
+    if (!value || this.skipPath(path)) {
       return;
     }
 
-    if (typeof val === 'string') {
-      item[key] = this.expandString(val, path);
+    if (typeof value === 'string') {
+      item[key] = value.includes('${') ? this.expandString(value, path) : value;
 
-    } else if (Object.prototype.toString.call(val) === '[object Object]') {
-      this.expandObject(val, path);
+    } else if (Object.prototype.toString.call(value) === '[object Object]') {
+      this.expandObject(value, path);
 
-    } else if (Array.isArray(val)) {
-      this.expandArray(val, path);
+    } else if (Array.isArray(value)) {
+      this.expandArray(value, path);
     }
   }
 
   expandString(str, path) {
-    let val;
     this.pathRefStack.push(path);
 
-    const m = str.match(VARIABLE_SINGLE_REGEXP);
-    if (m) {
-      val = this.get(m[1]);
-      if (typeof val === 'undefined') {
-        val = this.replaceUndefinedWithEmptyString ? '' : m[0];
+    const data = {
+      str,
+      re: /(.*?)(?:(?:(\${)(.*?)(:-|}))|(}))/g
+    };
+
+    let value;
+    do {
+      const r = this.recursiveExpandRef(data);
+      if (typeof r.value === 'undefined' && this.replaceUndefinedWithEmptyString) {
+        r.value = '';
+      }
+      if (r.end) {
+        r.value = `${r.value}}`;
       }
 
-    } else {
-      val = str.replace(VARIABLE_REPLACE_REGEXP, (match, path) => {
-        const val = this.get(path);
-        if (typeof val === 'undefined') {
-          return this.replaceUndefinedWithEmptyString ? '' : match;
-        }
-        return val;
-      });
-    }
+      value = this.concatAsString(value, r.value, true);
+    } while (data.re.lastIndex !== 0 && data.re.lastIndex !== data.str.length);
 
     this.pathRefStack.pop();
-    return val;
+    return value;
+  }
+
+  recursiveExpandRef(data, skipGetValue = false) {
+    let value;
+    let ref = 0;
+    let end = false;
+
+    do {
+      const lastIndex = data.re.lastIndex;
+      const matches = data.re.exec(data.str);
+      if (!matches) {
+        if (!skipGetValue) {
+          value = this.concatAsString(value, data.str.substring(lastIndex), ref === 0);
+        }
+        break;
+      }
+
+      if (!skipGetValue && matches[1]) {
+        value = this.concatAsString(value, matches[1], ref === 0);
+      }
+
+      if (matches[2]) {
+        ref++;
+        let val;
+        if (!skipGetValue) {
+          val = this.get(matches[3]);
+        }
+
+        if (matches[4] === ':-') {
+          const isValUndefined = typeof val === 'undefined';
+          const r = this.recursiveExpandRef(data, !isValUndefined || skipGetValue);
+          if (!r.end) {
+            throw new SyntaxError(`'}' is missing in the string ${data.str}`);
+          }
+          if (isValUndefined) {
+            val = r.value;
+          }
+        }
+
+        if (!skipGetValue) {
+          value = this.concatAsString(value, val, ref <= 1);
+        }
+        continue;
+      }
+
+      if (matches[5]) {
+        if (!skipGetValue && typeof value === 'undefined' && !ref) {
+          value = '';
+        }
+        end = true;
+        break;
+      }
+
+    } while (data.re.lastIndex !== data.str.length);
+
+    return { value, end };
+  }
+
+  concatAsString(a, b, ignoreUndefined) {
+    if (typeof a === 'undefined') {
+      if (ignoreUndefined) {
+        return b;
+      }
+      if (this.replaceUndefinedWithEmptyString) {
+        a = '';
+      }
+    }
+
+    if (typeof b === 'undefined' && this.replaceUndefinedWithEmptyString) {
+      b = '';
+    }
+    return `${a}${b}`;
   }
 
   get(path) {
-    let val = this.customGet(path);
-    if (typeof val !== 'undefined') {
-      return val;
+    let value = this.customGet(path);
+    if (typeof value !== 'undefined') {
+      return value;
     }
 
     if (this.pathRefStack.includes(path)) {
       throw new Error(`Circular dependency: ${this.pathRefStack.join(' -> ')} -> ${path}`);
     }
 
-    val = this.objectPath.get(this.root, path);
-    if (typeof val !== 'string') {
-      return val;
+    value = this.objectPath.get(this.root, path);
+    if (typeof value !== 'string') {
+      return value;
     }
 
-    if (!VARIABLE_TEST_REGEXP.test(val)) {
-      return val;
+    if (!value.includes('${')) {
+      return value;
     }
 
-    val = this.expandString(val, path);
-    this.objectPath.set(this.root, path, val);
-    return val;
+    value = this.expandString(value, path);
+    this.objectPath.set(this.root, path, value);
+    return value;
   }
 
   skipPath(path) {
